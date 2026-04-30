@@ -157,4 +157,4 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: `🗑️ Supprimé : ${res.rows[0].amount.toFixed(2)}€ (${res.rows[0].category})`, ephemeral: true });
 });
 
-client.login(process.env.MTQ5ODY5MDU4ODEwNTc2OTA1MA.GZ68qt.Nn6UyNsObi9a6ceB0F7ThvwcfgZBbKEL8La7oE);
+client.login(process.env.DISCORD_TOKEN);
