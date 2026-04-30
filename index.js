@@ -9,7 +9,7 @@ const PREFIX = "!";
 
 // Connexion à PostgreSQL via Railway
 const pool = new Pool({
-    connectionString: process.env.postgresql://postgres:XfvlMaZkifDlKfhejrNJpwYjMRhKzMBE@postgres.railway.internal:5432/railway,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
