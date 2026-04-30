@@ -1,30 +1,37 @@
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { Pool } = require('pg');
 
+// Créer le client Discord
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
+// Préfixe des commandes
 const PREFIX = "!";
 
-// Connexion à PostgreSQL via Railway
+// Connexion PostgreSQL via variable d'environnement
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL, // UTILISE la variable DATABASE_URL
     ssl: { rejectUnauthorized: false }
 });
 
-// Initialisation de la table revenus
+// Création de la table si elle n'existe pas
 async function initDB() {
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS revenus (
-            id SERIAL PRIMARY KEY,
-            user_id VARCHAR(50),
-            amount NUMERIC(10,2),
-            category VARCHAR(50),
-            description TEXT,
-            date TIMESTAMP DEFAULT NOW()
-        )
-    `);
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS revenus (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(50),
+                amount NUMERIC(10,2),
+                category VARCHAR(50),
+                description TEXT,
+                date TIMESTAMP DEFAULT NOW()
+            )
+        `);
+        console.log("Table 'revenus' OK");
+    } catch (err) {
+        console.error("Erreur initDB:", err);
+    }
 }
 initDB();
 
@@ -34,6 +41,12 @@ function parseAmount(input) {
     return parseFloat(input.replace(",", "."));
 }
 
+// Quand le bot est prêt
+client.on('ready', () => {
+    console.log(`Bot prêt et connecté en tant que ${client.user.tag}`);
+});
+
+// Gestion des messages
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
     if (!message.content.startsWith(PREFIX)) return;
@@ -42,7 +55,7 @@ client.on('messageCreate', async message => {
     const command = args.shift().toLowerCase();
     const userId = message.author.id;
 
-    // ➕ ADD
+    // ➕ !add
     if (command === "add") {
         const amount = parseAmount(args[0]);
         const category = args[1] || "autre";
@@ -58,7 +71,7 @@ client.on('messageCreate', async message => {
         return message.reply(`✅ Ajouté : ${amount.toFixed(2)}€ (${category})`);
     }
 
-    // 💰 TOTAL
+    // 💰 !total [catégorie]
     if (command === "total") {
         const category = args[0];
         let query = `SELECT SUM(amount) as total FROM revenus WHERE user_id=$1`;
@@ -70,11 +83,13 @@ client.on('messageCreate', async message => {
         }
 
         const res = await pool.query(query, params);
-        const total = res.rows[0].total || 0;
+        // Conversion en nombre pour éviter toFixed() error
+        const total = parseFloat(res.rows[0].total) || 0;
+
         return message.reply(`💰 Ton total ${category || "global"} : ${total.toFixed(2)}€`);
     }
 
-    // 📅 MONTH
+    // 📅 !month
     if (command === "month") {
         const now = new Date();
         const res = await pool.query(`SELECT amount, date FROM revenus WHERE user_id=$1`, [userId]);
@@ -88,7 +103,7 @@ client.on('messageCreate', async message => {
         return message.reply(`📅 Ton total ce mois : ${total.toFixed(2)}€`);
     }
 
-    // 📜 LISTE AVEC BOUTONS
+    // 📜 !list
     if (command === "list") {
         const res = await pool.query(`SELECT * FROM revenus WHERE user_id=$1 ORDER BY id`, [userId]);
         const userRevenus = res.rows;
@@ -99,7 +114,11 @@ client.on('messageCreate', async message => {
         const rows = [];
 
         userRevenus.forEach(r => {
-            embed.addFields({ name: `ID ${r.id}`, value: `${r.amount.toFixed(2)}€ [${r.category}] - ${r.description}`, inline: false });
+            embed.addFields({
+                name: `ID ${r.id}`,
+                value: `${parseFloat(r.amount).toFixed(2)}€ [${r.category}] - ${r.description}`,
+                inline: false
+            });
 
             const button = new ButtonBuilder()
                 .setCustomId(`delete_${r.id}_${userId}`)
@@ -112,13 +131,13 @@ client.on('messageCreate', async message => {
         return message.channel.send({ embeds: [embed], components: rows });
     }
 
-    // 🧹 RESET
+    // 🧹 !reset
     if (command === "reset") {
         await pool.query(`DELETE FROM revenus WHERE user_id=$1`, [userId]);
         return message.reply("🗑️ Tous TES revenus ont été supprimés");
     }
 
-    // ❓ HELP
+    // ❓ !help
     if (command === "help") {
         const embed = new EmbedBuilder()
             .setTitle("📊 Bot gestion de revenus")
@@ -136,7 +155,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// 🔘 GESTION DES BOUTONS SUPPRESSION
+// 🔘 Gestion des boutons de suppression
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith("delete_")) return;
@@ -154,7 +173,8 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ content: "❌ Revenu introuvable", ephemeral: true });
     }
 
-    return interaction.reply({ content: `🗑️ Supprimé : ${res.rows[0].amount.toFixed(2)}€ (${res.rows[0].category})`, ephemeral: true });
+    return interaction.reply({ content: `🗑️ Supprimé : ${parseFloat(res.rows[0].amount).toFixed(2)}€ (${res.rows[0].category})`, ephemeral: true });
 });
 
+// Lancer le bot
 client.login(process.env.DISCORD_TOKEN);
