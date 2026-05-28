@@ -11,7 +11,7 @@ const PREFIX = "!";
 
 // Connexion PostgreSQL via variable d'environnement
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL, // UTILISE la variable DATABASE_URL
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
@@ -83,7 +83,6 @@ client.on('messageCreate', async message => {
         }
 
         const res = await pool.query(query, params);
-        // Conversion en nombre pour éviter toFixed() error
         const total = parseFloat(res.rows[0].total) || 0;
 
         return message.reply(`💰 Ton total ${category || "global"} : ${total.toFixed(2)}€`);
@@ -103,32 +102,50 @@ client.on('messageCreate', async message => {
         return message.reply(`📅 Ton total ce mois : ${total.toFixed(2)}€`);
     }
 
-    // 📜 !list
+    // 📜 !list trié par catégorie avec total par catégorie
     if (command === "list") {
-        const res = await pool.query(`SELECT * FROM revenus WHERE user_id=$1 ORDER BY id`, [userId]);
-        const userRevenus = res.rows;
+        const res = await pool.query(
+            `SELECT * FROM revenus WHERE user_id=$1 ORDER BY category ASC, id ASC`,
+            [userId]
+        );
 
-        if (userRevenus.length === 0) return message.reply("📭 Aucun revenu");
+        const revenus = res.rows;
 
-        const embed = new EmbedBuilder().setTitle("📜 Tes revenus").setColor(0x00AEFF);
-        const rows = [];
+        if (revenus.length === 0) return message.reply("📭 Aucun revenu");
 
-        userRevenus.forEach(r => {
-            embed.addFields({
-                name: `ID ${r.id}`,
-                value: `${parseFloat(r.amount).toFixed(2)}€ [${r.category}] - ${r.description}`,
-                inline: false
-            });
+        const embed = new EmbedBuilder()
+            .setTitle("📜 Tes revenus par catégorie")
+            .setColor(0x00AEFF);
 
-            const button = new ButtonBuilder()
-                .setCustomId(`delete_${r.id}_${userId}`)
-                .setLabel(`🗑️ Supprimer ID ${r.id}`)
-                .setStyle(ButtonStyle.Danger);
+        const categories = {};
 
-            rows.push(new ActionRowBuilder().addComponents(button));
+        revenus.forEach(r => {
+            const category = r.category || "autre";
+
+            if (!categories[category]) {
+                categories[category] = {
+                    total: 0,
+                    items: []
+                };
+            }
+
+            const amount = parseFloat(r.amount) || 0;
+            categories[category].total += amount;
+
+            categories[category].items.push(
+                `ID ${r.id} • ${amount.toFixed(2)}€ - ${r.description}`
+            );
         });
 
-        return message.channel.send({ embeds: [embed], components: rows });
+        for (const [category, data] of Object.entries(categories)) {
+            embed.addFields({
+                name: `📂 ${category} — Total : ${data.total.toFixed(2)}€`,
+                value: data.items.join("\n"),
+                inline: false
+            });
+        }
+
+        return message.channel.send({ embeds: [embed] });
     }
 
     // 🧹 !reset
@@ -165,16 +182,31 @@ client.on('interactionCreate', async interaction => {
     const userId = parts[2];
 
     if (interaction.user.id !== userId) {
-        return interaction.reply({ content: "❌ Tu ne peux pas supprimer les revenus d'un autre utilisateur", ephemeral: true });
+        return interaction.reply({
+            content: "❌ Tu ne peux pas supprimer les revenus d'un autre utilisateur",
+            ephemeral: true
+        });
     }
 
-    const res = await pool.query(`DELETE FROM revenus WHERE id=$1 AND user_id=$2 RETURNING *`, [id, userId]);
+    const res = await pool.query(
+        `DELETE FROM revenus WHERE id=$1 AND user_id=$2 RETURNING *`,
+        [id, userId]
+    );
+
     if (res.rowCount === 0) {
-        return interaction.reply({ content: "❌ Revenu introuvable", ephemeral: true });
+        return interaction.reply({
+            content: "❌ Revenu introuvable",
+            ephemeral: true
+        });
     }
 
-    return interaction.reply({ content: `🗑️ Supprimé : ${parseFloat(res.rows[0].amount).toFixed(2)}€ (${res.rows[0].category})`, ephemeral: true });
+    return interaction.reply({
+        content: `🗑️ Supprimé : ${parseFloat(res.rows[0].amount).toFixed(2)}€ (${res.rows[0].category})`,
+        ephemeral: true
+    });
 });
 
 // Lancer le bot
 client.login(process.env.DISCORD_TOKEN);
+
+Update list command by category
