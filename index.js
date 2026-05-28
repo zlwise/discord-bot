@@ -208,5 +208,3 @@ client.on('interactionCreate', async interaction => {
 
 // Lancer le bot
 client.login(process.env.DISCORD_TOKEN);
-
-Update list command by category
